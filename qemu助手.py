@@ -334,15 +334,24 @@ class Session:
             return False
 
     def save(self) -> None:
-        """Saves configuration to disk."""
+        """Saves configuration to disk using atomic write pattern."""
         self.create_structure()
-        with open(self.config_file, 'w') as f:
-            for key, val in self.config.items():
-                f.write(f'{key}="{val}"\n')
-            for i, disk in enumerate(self.disks):
-                f.write(f'DISK_{i}="{disk}"\n')
-            for i, iso in enumerate(self.isos):
-                f.write(f'ISO_{i}="{iso}"\n')
+        tmp_file = self.config_file + ".tmp"
+        try:
+            with open(tmp_file, 'w') as f:
+                for key, val in self.config.items():
+                    f.write(f'{key}="{val}"\n')
+                for i, disk in enumerate(self.disks):
+                    f.write(f'DISK_{i}="{disk}"\n')
+                for i, iso in enumerate(self.isos):
+                    f.write(f'ISO_{i}="{iso}"\n')
+            
+            # Atomic replacement
+            os.replace(tmp_file, self.config_file)
+        except Exception as e:
+            print(f"{Colors.FAIL}保存配置失败: {e}{Colors.ENDC}")
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
 
     def delete(self) -> None:
         """Deletes the entire session directory."""
@@ -361,8 +370,16 @@ class Session:
             defaults.update(self.config)
 
         self.config["VM_NAME"] = self.name
-        self.config["MEM_SIZE"] = UI.get_input("1. 内存大小", defaults["MEM_SIZE"])
-        self.config["CPU_CORES"] = UI.get_input("2. CPU 核心数", defaults["CPU_CORES"])
+        
+        mem_input = UI.get_input("1. 内存大小 (如 4G, 8192M)", defaults["MEM_SIZE"])
+        if not (mem_input.upper().endswith('G') or mem_input.upper().endswith('M') or mem_input.isdigit()):
+             print(f"{Colors.WARNING}警告: 内存格式可能不正确，建议使用 G 或 M 后缀。{Colors.ENDC}")
+        self.config["MEM_SIZE"] = mem_input
+
+        cpu_input = UI.get_input("2. CPU 核心数", defaults["CPU_CORES"])
+        if not cpu_input.isdigit():
+             print(f"{Colors.WARNING}警告: CPU 核心数应为数字。{Colors.ENDC}")
+        self.config["CPU_CORES"] = cpu_input
         
         self.save()
         print(f"{Colors.GREEN}>> 基础配置已保存。{Colors.ENDC}")
@@ -378,22 +395,67 @@ class Session:
     # --- Resource Management ---
 
     def import_resource(self, src_path: str, target_dir: str, res_type_name: str) -> Optional[str]:
-        """Generic resource import logic."""
+        """
+        Smart resource import logic.
+        Handles:
+        1. Internal re-import (Source is already in target dir) -> No copy, just link.
+        2. Name collision (Target exists but different) -> Overwrite/Rename/Use Existing.
+        """
         if not src_path: return None
         
         src_path = FS.expand_path(src_path)
         if not os.path.exists(src_path):
-            print(f"{Colors.FAIL}>> 错误: 文件不存在: {src_path}{Colors.ENDC}")
+            print(f"{Colors.FAIL}>> 错误: 源文件不存在: {src_path}{Colors.ENDC}")
             return None
             
         filename = os.path.basename(src_path)
         dest_path = os.path.join(target_dir, filename)
         
-        if os.path.exists(dest_path):
-            confirm = UI.get_input(f"{Colors.WARNING}>> 文件 '{filename}' 已存在于存档中，是否覆盖? (y/N){Colors.ENDC}", "N")
-            if confirm.lower() != 'y':
-                return filename
+        # 1. Check for Self-Import (Source == Destination)
+        if os.path.abspath(src_path) == os.path.abspath(dest_path):
+            print(f"{Colors.GREEN}>> 检测到文件已在存档目录中。直接关联，无需复制。{Colors.ENDC}")
+            time.sleep(0.5)
+            return filename
 
+        # 2. Check for Name Collision (Target exists but is different file)
+        if os.path.exists(dest_path):
+            print(f"{Colors.WARNING}>> 冲突检测: 存档中已存在同名文件 '{filename}'{Colors.ENDC}")
+            try:
+                src_size = os.path.getsize(src_path) / 1024 / 1024
+                dest_size = os.path.getsize(dest_path) / 1024 / 1024
+                print(f"   源文件: {src_path} ({src_size:.1f} MB)")
+                print(f"   现存文件: {dest_path} ({dest_size:.1f} MB)")
+            except:
+                pass
+                
+            print("-" * 30)
+            print("  [U] 使用现存文件 (Use Existing) - 忽略导入，直接使用存档里的旧文件")
+            print("  [O] 覆盖 (Overwrite)            - 用新文件替换存档里的旧文件")
+            print("  [R] 重命名导入 (Rename)         - 自动重命名新文件并导入")
+            print("  [C] 取消 (Cancel)")
+            
+            choice = UI.get_input("请选择处理方式", "C").upper()
+            
+            if choice == 'U':
+                print(f"{Colors.GREEN}>> 已选择使用现存文件。{Colors.ENDC}")
+                return filename
+            elif choice == 'O':
+                print(f"{Colors.WARNING}>> 准备覆盖...{Colors.ENDC}")
+                # Proceed to copy logic
+            elif choice == 'R':
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(os.path.join(target_dir, f"{base}_{counter}{ext}")):
+                    counter += 1
+                filename = f"{base}_{counter}{ext}"
+                dest_path = os.path.join(target_dir, filename)
+                print(f"{Colors.GREEN}>> 新文件名: {filename}{Colors.ENDC}")
+                # Proceed to copy logic
+            else:
+                print(">> 操作已取消。")
+                return None
+
+        # 3. Perform Copy
         print(f"{Colors.GREEN}>> 正在导入 {res_type_name} (复制中...)...{Colors.ENDC}")
         try:
             shutil.copy2(src_path, dest_path)
@@ -537,9 +599,16 @@ class Session:
                     continue
                     
                 print(f"{Colors.GREEN}>> 创建磁盘镜像...{Colors.ENDC}")
-                subprocess.run(["qemu-img", "create", "-f", "qcow2", dest_path, size])
-                self.disks.append(name)
-                self.save()
+                try:
+                    subprocess.run(["qemu-img", "create", "-f", "qcow2", dest_path, size], check=True)
+                    if os.path.exists(dest_path):
+                        self.disks.append(name)
+                        self.save()
+                    else:
+                        raise Exception("文件创建后未找到")
+                except Exception as e:
+                    print(f"{Colors.FAIL}>> 创建失败: {e}{Colors.ENDC}")
+                    time.sleep(1)
                 
             elif choice == 'i':
                 path = UI.get_input("请输入源磁盘文件路径", "")
@@ -622,14 +691,21 @@ class Session:
             if op == 'r':
                 if UI.get_input(f"{Colors.WARNING}确认重置? 所有未保存数据将丢失 (y/N){Colors.ENDC}", "N").lower() == 'y':
                     backing = info['backing-filename']
+                    tmp_path = disk_path + ".tmp"
                     try:
-                        os.remove(disk_path)
+                        # Atomic-like replacement: Rename old -> Create new -> Delete old
+                        os.rename(disk_path, tmp_path)
                         subprocess.run(["qemu-img", "create", "-f", "qcow2", 
                                       "-b", backing, "-F", "qcow2", disk_name], 
                                       cwd=self.disk_dir, check=True)
+                        os.remove(tmp_path)
                         print(f"{Colors.GREEN}>> 重置成功。{Colors.ENDC}")
                     except Exception as e:
                         print(f"{Colors.FAIL}>> 操作失败: {e}{Colors.ENDC}")
+                        # Try to restore
+                        if os.path.exists(tmp_path) and not os.path.exists(disk_path):
+                            os.rename(tmp_path, disk_path)
+                            print(f"{Colors.WARNING}>> 已恢复原文件。{Colors.ENDC}")
                     time.sleep(1)
             
             elif op == 'c':
