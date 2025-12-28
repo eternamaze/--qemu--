@@ -506,14 +506,25 @@ class Session:
                         size_str = f"{size / 1024 / 1024:.1f} MB"
                     else:
                         size_str = "DIR"
-                    
+
                     # Check usage status
                     status = ""
-                    if target_dir == self.disk_dir and f in self.disks:
-                        status = f"{Colors.GREEN}*[使用中]*{Colors.ENDC}"
-                    elif target_dir == self.iso_dir and f in self.isos:
-                        status = f"{Colors.GREEN}*[使用中]*{Colors.ENDC}"
-                    
+                    if target_dir == self.disk_dir:
+                        # 1. 当前配置直接引用
+                        if f in self.disks:
+                            status = f"{Colors.GREEN}*[使用中]*{Colors.ENDC}"
+                        else:
+                            # 2. 被快照引用（作为 backing file）
+                            for disk in self.disks:
+                                info = self.get_disk_info(disk)
+                                if info and 'backing-filename' in info:
+                                    backing = os.path.basename(info['backing-filename'])
+                                    if backing == f:
+                                        status = f"{Colors.GREEN}*[被快照引用]*{Colors.ENDC}"
+                                        break
+                    elif target_dir == self.iso_dir:
+                        if f in self.isos:
+                            status = f"{Colors.GREEN}*[使用中]*{Colors.ENDC}"
                     print(f"  [{i+1}] {f} ({size_str}) {status}")
             
             print("-" * 40)
