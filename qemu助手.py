@@ -193,7 +193,7 @@ class QEMURunner:
             "-device", "usb-tablet",
             "-device", "usb-kbd",
             # Graphics & Audio
-            "-device", "virtio-vga-gl", "-display", "gtk,gl=on,zoom-to-fit=on",
+            "-device", "virtio-vga-gl", "-display", "gtk,gl=on,zoom-to-fit=on,grab-on-hover=on",
             "-device", "intel-hda", "-device", "hda-duplex",
             # Network
             "-device", "virtio-net-pci,netdev=net0,mq=on", "-netdev", "user,id=net0"
