@@ -406,6 +406,13 @@ class Session:
         src_path = FS.expand_path(src_path)
         if not os.path.exists(src_path):
             print(f"{Colors.FAIL}>> 错误: 源文件不存在: {src_path}{Colors.ENDC}")
+            input("按 Enter 继续...")
+            return None
+            
+        if os.path.isdir(src_path):
+            print(f"{Colors.FAIL}>> 错误: 选择的是文件夹而非文件: {src_path}{Colors.ENDC}")
+            print(f"{Colors.WARNING}>> 请选择一个有效的 {res_type_name} 文件。{Colors.ENDC}")
+            input("按 Enter 继续...")
             return None
             
         filename = os.path.basename(src_path)
@@ -463,6 +470,7 @@ class Session:
             return filename
         except Exception as e:
             print(f"{Colors.FAIL}>> 导入失败: {e}{Colors.ENDC}")
+            input("按 Enter 继续...")
             return None
 
     def file_manager(self, target_dir: str, file_type_desc: str) -> None:
@@ -521,7 +529,7 @@ class Session:
                         
                         warn_msg = ""
                         if is_used:
-                            warn_msg = f"{Colors.FAIL}警告: 该文件正在被当前配置使用！删除将导致虚拟机无法启动！{Colors.ENDC}\n"
+                            warn_msg = f"{Colors.WARNING}注意: 该文件正在使用中。删除操作将自动将其从配置中卸载。{Colors.ENDC}\n"
                         
                         confirm = UI.get_input(f"{warn_msg}确认永久物理删除文件 '{fname}'? (y/N)", "N")
                         if confirm.lower() == 'y':
@@ -539,6 +547,7 @@ class Session:
                                     elif target_dir == self.iso_dir:
                                         self.isos.remove(fname)
                                     self.save()
+                                    print(f"{Colors.GREEN}>> 已自动从配置中卸载。{Colors.ENDC}")
                             except Exception as e:
                                 print(f"{Colors.FAIL}>> 删除失败: {e}{Colors.ENDC}")
                             time.sleep(1)
