@@ -174,6 +174,7 @@ class QEMURunner:
             "qemu-system-x86_64",
             "-name", config.get("VM_NAME", "unknown"),
             "-machine", "q35", "-accel", "kvm",
+            "-boot", "menu=on",
             # Performance Optimizations
             "-object", "iothread,id=io0",
             "-cpu", "host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,hv_synic,hv_stimer,hv_reset,hv_vpindex,hv_runtime,hv_frequencies",
@@ -200,6 +201,9 @@ class QEMURunner:
         ]
 
         # Disks
+        # ISOs get boot priority (1..N), Disks follow (N+1..M)
+        iso_boot_offset = len(self.session.isos)
+
         for i, disk in enumerate(self.session.disks):
             disk_path = os.path.join(self.session.disk_dir, disk)
             if os.path.exists(disk_path):
@@ -207,7 +211,7 @@ class QEMURunner:
                 serial = f"DISK_{i}"
                 cmd.extend([
                     "-drive", f"file={disk_path},format=qcow2,if=none,id={drive_id},cache=writeback",
-                    "-device", f"virtio-blk-pci,drive={drive_id},serial={serial},bootindex={i+1},iothread=io0"
+                    "-device", f"virtio-blk-pci,drive={drive_id},serial={serial},bootindex={iso_boot_offset + i + 1},iothread=io0"
                 ])
             else:
                 print(f"{Colors.WARNING}⚠️  警告: 磁盘文件丢失: {disk}{Colors.ENDC}")
@@ -216,7 +220,11 @@ class QEMURunner:
         for i, iso in enumerate(self.session.isos):
             iso_path = os.path.join(self.session.iso_dir, iso)
             if os.path.exists(iso_path):
-                cmd.extend(["-drive", f"file={iso_path},media=cdrom,readonly=on"])
+                drive_id = f"drive_cd_{i}"
+                cmd.extend([
+                    "-drive", f"file={iso_path},format=raw,if=none,id={drive_id},media=cdrom,readonly=on",
+                    "-device", f"ide-cd,drive={drive_id},bootindex={i+1}"
+                ])
             else:
                 print(f"{Colors.WARNING}⚠️  警告: ISO 文件丢失: {iso}{Colors.ENDC}")
 
