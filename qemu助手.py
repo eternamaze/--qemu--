@@ -183,22 +183,43 @@ class QEMURunner:
             # Firmware
             "-drive", f"if=pflash,format=raw,readonly=on,file={self.ovmf_code}",
             "-drive", f"if=pflash,format=raw,file={self.session.vars_file}",
-            # VirtIO Devices
+            # VirtIO Devices (base)
             "-device", "virtio-balloon-pci",
             "-device", "virtio-rng-pci",
             "-device", "virtio-serial-pci",
-            "-device", "virtio-keyboard-pci",
-            "-device", "virtio-tablet-pci",
-            # USB
+            # USB controller (present if USB devices needed)
             "-device", "qemu-xhci,id=usb",
-            "-device", "usb-tablet",
-            "-device", "usb-kbd",
             # Graphics & Audio
             "-device", "virtio-vga-gl", "-display", "gtk,gl=on,zoom-to-fit=on,grab-on-hover=on",
             "-device", "intel-hda", "-device", "hda-duplex",
             # Network
             "-device", "virtio-net-pci,netdev=net0,mq=on", "-netdev", "user,id=net0"
         ]
+
+        # Input devices: decide at runtime from session configuration
+        try:
+            kb_type, mouse_type = self.session.get_input_config()
+        except Exception:
+            kb_type, mouse_type = "virtio", "usb-tablet"
+
+        # Keyboard
+        if kb_type == "ps2":
+            cmd.extend(["-device", "ps2-keyboard"])
+        elif kb_type == "usb":
+            # USB keyboard uses host controller
+            cmd.extend(["-device", "usb-kbd"])
+        else:  # virtio
+            cmd.extend(["-device", "virtio-keyboard-pci"])
+
+        # Pointer / mouse
+        if mouse_type == "ps2":
+            cmd.extend(["-device", "ps2-mouse"])
+        elif mouse_type == "usb":
+            cmd.extend(["-device", "usb-mouse"])
+        elif mouse_type == "usb-tablet":
+            cmd.extend(["-device", "usb-tablet"])
+        else:  # virtio-tablet
+            cmd.extend(["-device", "virtio-tablet-pci"])
 
         # Disks
         # ISOs get boot priority (1..N), Disks follow (N+1..M)
@@ -311,6 +332,50 @@ class Session:
         self.disks: List[str] = []
         self.isos: List[str] = []
         self.transient_mounts: List[str] = []
+
+    # --- Input Device Management ---
+    def get_input_config(self) -> Tuple[str, str]:
+        """Return configured (keyboard, mouse) device types."""
+        kb: str = self.config.get("INPUT_KEYBOARD", "virtio")
+        mouse: str = self.config.get("INPUT_MOUSE", "usb-tablet")
+        return kb, mouse
+
+    def set_input_config(self, kb: str, mouse: str) -> None:
+        self.config["INPUT_KEYBOARD"] = kb
+        self.config["INPUT_MOUSE"] = mouse
+        self.save()
+
+    def manage_input_devices(self) -> None:
+        """Interactive menu to manage input device types."""
+        KEYBOARD_TYPES: List[str] = ["ps2", "usb", "virtio"]
+        MOUSE_TYPES: List[str] = ["ps2", "usb", "usb-tablet", "virtio-tablet"]
+        while True:
+            UI.clear_screen()
+            print(f"{Colors.CYAN}--- 输入设备配置 ---{Colors.ENDC}")
+            kb, mouse = self.get_input_config()
+            print(f"当前键盘类型: {Colors.GREEN}{kb}{Colors.ENDC}")
+            print(f"当前鼠标类型: {Colors.GREEN}{mouse}{Colors.ENDC}")
+            print("-" * 40)
+            print("  [K] 切换键盘类型")
+            print("  [M] 切换鼠标类型")
+            print("  [B] 返回")
+            choice: str = input("请选择: ").strip().lower()
+            if choice == 'b':
+                break
+            if choice == 'k':
+                try:
+                    idx = KEYBOARD_TYPES.index(kb)
+                except ValueError:
+                    idx = 0
+                idx = (idx + 1) % len(KEYBOARD_TYPES)
+                self.set_input_config(KEYBOARD_TYPES[idx], mouse)
+            elif choice == 'm':
+                try:
+                    idx = MOUSE_TYPES.index(mouse)
+                except ValueError:
+                    idx = 0
+                idx = (idx + 1) % len(MOUSE_TYPES)
+                self.set_input_config(kb, MOUSE_TYPES[idx])
 
     # --- Lifecycle & Config ---
 
@@ -921,7 +986,8 @@ def session_loop(session_name: str, ovmf_code: str, ovmf_vars_template: str) -> 
 
         print("-" * 52)
         print("  [S] 启动虚拟机 (Start)")
-        print("  [H] 硬件配置 (Hardware)")
+        print("  [H] CPU和内存配置 (CPU/Mem)")
+        print("  [I] 输入配置 (Input)")
         print("  [D] 磁盘管理 (Disks)")
         print("  [C] 光驱管理 (CD/ISO)")
         print("  [M] 更多挂载 (Mounts)")
@@ -940,6 +1006,8 @@ def session_loop(session_name: str, ovmf_code: str, ovmf_vars_template: str) -> 
             input("\n按 Enter 返回会话菜单...")
         elif choice == 'h':
             session.configure_basic(is_new=False)
+        elif choice == 'i':
+            session.manage_input_devices()
         elif choice == 'd':
             session.manage_disk()
         elif choice == 'c':
