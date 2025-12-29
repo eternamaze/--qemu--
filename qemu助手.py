@@ -260,7 +260,24 @@ class QEMURunner:
         cmd = self.build_command()
         print(f"\n{Colors.GREEN}>> 虚拟机正在启动...{Colors.ENDC}")
         print(f"{Colors.WARNING}⚠️  注意: 额外挂载的资源将显示为 USB 移动存储设备。{Colors.ENDC}")
-        print(f"{Colors.BLUE}QEMU命令行:{Colors.ENDC}\n  {' '.join(cmd)}\n")
+        # 格式化为多行shell命令，便于阅读和复制
+        shell_lines: List[str] = []
+        if cmd:
+            shell_lines.append(cmd[0])
+            i = 1
+            while i < len(cmd):
+                part = cmd[i]
+                # 如果是参数且下一个是值，则合并
+                if part.startswith('-') and i+1 < len(cmd) and not cmd[i+1].startswith('-'):
+                    shell_lines.append(f"  {part} {cmd[i+1]} \\")
+                    i += 2
+                else:
+                    shell_lines.append(f"  {part} \\")
+                    i += 1
+            # 去掉最后一行的 \
+            if shell_lines[-1].endswith(' \\'):
+                shell_lines[-1] = shell_lines[-1][:-2]
+        print(f"{Colors.BLUE}QEMU命令行 (可复制):{Colors.ENDC}\n" + '\n'.join(shell_lines) + '\n')
         time.sleep(2)
         
         try:
