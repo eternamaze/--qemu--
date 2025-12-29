@@ -260,6 +260,7 @@ class QEMURunner:
         cmd = self.build_command()
         print(f"\n{Colors.GREEN}>> 虚拟机正在启动...{Colors.ENDC}")
         print(f"{Colors.WARNING}⚠️  注意: 额外挂载的资源将显示为 USB 移动存储设备。{Colors.ENDC}")
+        print(f"{Colors.BLUE}QEMU命令行:{Colors.ENDC}\n  {' '.join(cmd)}\n")
         time.sleep(2)
         
         try:
