@@ -301,10 +301,37 @@ class QEMURunner:
         print(f"{Colors.BLUE}QEMU命令行 (可复制):{Colors.ENDC}\n" + '\n'.join(shell_lines) + '\n')
         time.sleep(2)
         
+        proc = None
         try:
-            subprocess.run(cmd)
+            # Start QEMU as a subprocess so we can report PID and inspect it
+            proc = subprocess.Popen(cmd)
+            pid = proc.pid
+            print(f"{Colors.GREEN}>> QEMU 已启动, PID={pid}{Colors.ENDC}")
+
+            # Try to show useful process info via ps
+            try:
+                res = subprocess.run(["ps", "-p", str(pid), "-o", "pid,ppid,user,etime,cmd"],
+                                     capture_output=True, text=True, check=True)
+                print(f"{Colors.BLUE}进程信息:{Colors.ENDC}\n{res.stdout}")
+            except Exception:
+                # ps may fail on some systems; ignore
+                pass
+
+            # Wait for process to exit
+            proc.wait()
         except KeyboardInterrupt:
-            print("\n>> 用户中止。")
+            print("\n>> 捕获到中断，尝试终止 QEMU 进程...\n")
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    time.sleep(1)
+                    if proc.poll() is None:
+                        proc.kill()
+                except Exception:
+                    pass
+            print("\n>> 已请求终止。")
+        except Exception as e:
+            print(f"{Colors.FAIL}启动失败: {e}{Colors.ENDC}")
 
 # ==============================================================================
 # MODULE: SESSION MANAGEMENT
